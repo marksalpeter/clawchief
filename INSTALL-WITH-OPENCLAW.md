@@ -11,10 +11,11 @@ Do not continue until these all work:
 - Gmail message search
 - Calendar list / event read
 - Sheets metadata read
+- Google Docs read if you plan to use meeting-notes ingestion
 
 ## 1. Gather install values
 
-Collect these before writing files:
+Collect these before editing files:
 
 - `{{OWNER_NAME}}`
 - `{{ASSISTANT_NAME}}`
@@ -29,7 +30,12 @@ Collect these before writing files:
 - `{{GOOGLE_SHEET_ID}}`
 - `{{TARGET_MARKET}}`
 - `{{TARGET_GEOGRAPHY}}`
-- `{{REPO_ROOT}}`
+
+Optional additional values if you use more calendars:
+
+- `{{SECONDARY_CALENDAR_EMAIL_1}}`
+- `{{SECONDARY_CALENDAR_EMAIL_2}}`
+- `{{SECONDARY_CALENDAR_EMAIL_3}}`
 
 ## 2. Install the skills
 
@@ -44,17 +50,20 @@ Copy these directories into `~/.openclaw/skills/`:
 
 Copy these into `~/.openclaw/workspace/`:
 
+- `clawchief/`
 - `workspace/HEARTBEAT.md`
 - `workspace/TOOLS.md`
-- `workspace/tasks/current.md`
+- `workspace/memory/meeting-notes-state.json`
 
-Merge carefully if you already have live files.
+Note:
+- `workspace/tasks/current.md` is included only as a deprecation note for older installs
+- the live task source of truth is now `clawchief/tasks.md`
 
 ## 4. Add your private workspace files
 
-This public pack does **not** ship personal context files.
+This public pack does *not* ship personal context files.
 
-Create your own versions of these in the workspace if you use them:
+Create your own versions of these if your setup depends on them:
 
 - `AGENTS.md`
 - `SOUL.md`
@@ -82,11 +91,18 @@ Minimum search list:
 - `{{GOOGLE_SHEET_ID}}`
 - `{{TARGET_MARKET}}`
 - `{{TARGET_GEOGRAPHY}}`
-- `{{REPO_ROOT}}`
+
+Then customize these files for your real workflow:
+
+- `workspace/TOOLS.md`
+- `clawchief/priority-map.md`
+- `clawchief/tasks.md`
+- `skills/business-development/resources/partners.md`
+- `cron/jobs.template.json`
 
 ## 6. Create the cron jobs
 
-Use `cron/jobs.template.json` as the pattern.
+Use `cron/jobs.template.json` as the starting pattern.
 
 Recommended starting jobs:
 
@@ -100,8 +116,10 @@ Optional jobs:
 5. self-update
 
 Notes:
-- backup should stay disabled until the remote repo and allowlist are correct
-- self-update should stay disabled unless you explicitly want that behavior
+- keep prompts short and let the skill carry the workflow details
+- if your sweep window cannot be expressed cleanly in one cron, split it into a main recurring job plus boundary jobs
+- keep backup disabled until the remote repo and allowlist are correct
+- keep self-update disabled unless you explicitly want that behavior
 
 ## 7. Validate the install
 

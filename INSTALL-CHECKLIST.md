@@ -5,9 +5,10 @@ The install is good only if every item below passes.
 ## GOG
 
 - [ ] `gog auth list` shows the correct operating account
-- [ ] Gmail **message search** works
-- [ ] Calendar list/read works
+- [ ] Gmail *message search* works
+- [ ] Calendar list / read works
 - [ ] Sheets metadata read works
+- [ ] Google Docs read works if meeting-notes ingestion is enabled
 
 ## Skills
 
@@ -18,21 +19,28 @@ The install is good only if every item below passes.
 
 ## Workspace
 
-- [ ] `HEARTBEAT.md` is installed
-- [ ] `TOOLS.md` is installed
-- [ ] `tasks/current.md` is installed
+- [ ] `clawchief/priority-map.md` is installed
+- [ ] `clawchief/auto-resolver.md` is installed
+- [ ] `clawchief/meeting-notes.md` is installed
+- [ ] `clawchief/tasks.md` is installed
+- [ ] `clawchief/tasks-completed.md` is installed
+- [ ] `workspace/HEARTBEAT.md` is installed
+- [ ] `workspace/TOOLS.md` is installed
+- [ ] `workspace/memory/meeting-notes-state.json` is installed
 - [ ] private workspace files have been authored if your setup depends on them
 - [ ] all placeholders are replaced
 
 ## Behavior
 
-- [ ] heartbeat reads `tasks/current.md`
+- [ ] heartbeat reads the source-of-truth files instead of duplicating workflow logic
 - [ ] proactive updates route to the intended channel + target
-- [ ] inbox sweeps use **message-level** Gmail search
+- [ ] inbox sweeps use *message-level* Gmail search
 - [ ] scheduling checks all relevant calendars before booking
-- [ ] business-development work treats the Google Sheet as the live source of truth
+- [ ] the task system uses `clawchief/tasks.md` as the live source of truth
+- [ ] prior-day completed tasks archive into `clawchief/tasks-completed.md`
+- [ ] meeting notes are treated as a live signal source if enabled
+- [ ] business-development work treats the outreach sheet as the live source of truth
 - [ ] daily task prep promotes due-today items into `## Today`
-- [ ] LinkedIn work prefers an agent-controlled browser profile by default
 
 ## Cron
 
