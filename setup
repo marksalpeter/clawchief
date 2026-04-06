@@ -1,0 +1,276 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPENCLAW_DIR="${OPENCLAW_DIR:-$HOME/.openclaw}"
+SKILLS_DIR="$OPENCLAW_DIR/skills"
+WORKSPACE_DIR="$OPENCLAW_DIR/workspace"
+
+# ─── dependency checks ───────────────────────────────────────────────────────
+
+check_brew() {
+  if ! command -v brew &>/dev/null; then
+    echo "Homebrew is required but not installed."
+    echo "Install it from https://brew.sh and re-run this script."
+    exit 1
+  fi
+}
+
+ensure_dep() {
+  local cmd="$1"
+  local brew_pkg="${2:-$1}"
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Installing $brew_pkg..."
+    brew install "$brew_pkg"
+  fi
+}
+
+check_brew
+ensure_dep gum charmbracelet/gum/gum
+ensure_dep gog steipete/tap/gogcli
+ensure_dep jq jq
+
+# ─── welcome ─────────────────────────────────────────────────────────────────
+
+gum style \
+  --border rounded \
+  --padding "1 2" \
+  --bold \
+  "clawchief setup"
+
+gum style "This script will install clawchief into your OpenClaw environment."
+echo
+
+# ─── step 0: gog setup ───────────────────────────────────────────────────────
+
+gum style --bold "Step 0: GOG (Google OAuth Gateway)"
+echo
+
+if gog auth list 2>/dev/null | grep -q "@"; then
+  gum style --foreground 2 "GOG is already authenticated."
+  gog auth list
+  echo
+  if ! gum confirm "Continue with existing GOG account?"; then
+    echo "Re-run after resolving GOG auth."
+    exit 1
+  fi
+else
+  gum style "GOG needs a Google OAuth desktop-client credentials JSON."
+  gum style "Create one at Google Cloud Console -> APIs & Services -> Credentials -> OAuth client ID (Desktop app)."
+  echo
+
+  CREDENTIALS_PATH=$(gum input \
+    --prompt "Path to client_secret.json: " \
+    --placeholder "/path/to/client_secret.json")
+
+  if [[ ! -f "$CREDENTIALS_PATH" ]]; then
+    gum style --foreground 1 "File not found: $CREDENTIALS_PATH"
+    exit 1
+  fi
+
+  gog auth credentials "$CREDENTIALS_PATH"
+
+  ASSISTANT_EMAIL_AUTH=$(gum input \
+    --prompt "Operating Google account email: " \
+    --placeholder "assistant@example.com")
+
+  gog auth add "$ASSISTANT_EMAIL_AUTH" --services gmail,calendar,drive,contacts,docs,sheets
+fi
+
+echo
+gum style --bold "Verifying GOG services..."
+echo
+
+GOG_ACCOUNT=$(gog auth list 2>/dev/null | grep "@" | head -1 | awk '{print $1}')
+
+GMAIL_OK=false
+CALENDAR_OK=false
+SHEETS_SHEET_ID=""
+
+if gog gmail messages search -a "$GOG_ACCOUNT" 'in:inbox newer_than:7d' --max=1 --json --results-only &>/dev/null; then
+  gum style --foreground 2 "Gmail: OK"
+  GMAIL_OK=true
+else
+  gum style --foreground 1 "Gmail: FAILED"
+fi
+
+if gog calendar calendars -a "$GOG_ACCOUNT" --json --results-only &>/dev/null; then
+  gum style --foreground 2 "Calendar: OK"
+  CALENDAR_OK=true
+else
+  gum style --foreground 1 "Calendar: FAILED"
+fi
+
+if [[ "$GMAIL_OK" != "true" || "$CALENDAR_OK" != "true" ]]; then
+  gum style --foreground 1 "GOG verification failed. Fix the issues above and re-run."
+  exit 1
+fi
+
+echo
+
+# ─── step 1: gather values ───────────────────────────────────────────────────
+
+gum style --bold "Step 1: Install values"
+gum style "These replace all {{PLACEHOLDER}} tokens in the installed files."
+echo
+
+OWNER_NAME=$(gum input --prompt "Your name (OWNER_NAME): " --placeholder "Jane Smith")
+ASSISTANT_NAME=$(gum input --prompt "Assistant name (ASSISTANT_NAME): " --placeholder "Aria")
+ASSISTANT_EMAIL=$(gum input --prompt "Assistant email (ASSISTANT_EMAIL): " --value "${ASSISTANT_EMAIL_AUTH:-}" --placeholder "assistant@example.com")
+PRIMARY_WORK_EMAIL=$(gum input --prompt "Your primary work email (PRIMARY_WORK_EMAIL): " --placeholder "jane@company.com")
+PERSONAL_EMAIL=$(gum input --prompt "Your personal email (PERSONAL_EMAIL): " --placeholder "jane@gmail.com")
+BUSINESS_NAME=$(gum input --prompt "Business name (BUSINESS_NAME): " --placeholder "Acme Inc")
+BUSINESS_URL=$(gum input --prompt "Business URL (BUSINESS_URL): " --placeholder "https://acme.com")
+TIMEZONE=$(gum input --prompt "Timezone (TIMEZONE): " --placeholder "America/New_York")
+echo
+
+gum style "Proactive update delivery channel (e.g. slack, telegram, discord):"
+PRIMARY_UPDATE_CHANNEL=$(gum input --prompt "Channel type (PRIMARY_UPDATE_CHANNEL): " --placeholder "slack")
+PRIMARY_UPDATE_TARGET=$(gum input --prompt "Channel target / recipient (PRIMARY_UPDATE_TARGET): " --placeholder "#ops or @username")
+echo
+
+GOOGLE_SHEET_ID=$(gum input --prompt "Google Sheet ID (GOOGLE_SHEET_ID): " --placeholder "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms")
+TARGET_MARKET=$(gum input --prompt "Target market (TARGET_MARKET): " --placeholder "B2B SaaS founders")
+TARGET_GEOGRAPHY=$(gum input --prompt "Target geography (TARGET_GEOGRAPHY): " --placeholder "North America")
+echo
+
+# Verify Sheets now that we have the sheet ID
+if gog sheets metadata "$GOOGLE_SHEET_ID" -a "$ASSISTANT_EMAIL" --json --results-only &>/dev/null; then
+  gum style --foreground 2 "Sheets: OK"
+else
+  gum style --foreground 3 "Sheets: WARNING - could not read sheet $GOOGLE_SHEET_ID (check sharing settings)"
+  gum confirm "Continue anyway?" || exit 1
+fi
+echo
+
+gum style --bold "Optional: secondary calendars (press Enter to skip)"
+SECONDARY_CALENDAR_EMAIL_1=$(gum input --prompt "Secondary calendar 1: " --placeholder "(optional)")
+SECONDARY_CALENDAR_EMAIL_2=$(gum input --prompt "Secondary calendar 2: " --placeholder "(optional)")
+SECONDARY_CALENDAR_EMAIL_3=$(gum input --prompt "Secondary calendar 3: " --placeholder "(optional)")
+echo
+
+# ─── step 2: install skills ──────────────────────────────────────────────────
+
+gum style --bold "Step 2: Installing skills"
+echo
+
+mkdir -p "$SKILLS_DIR"
+
+for skill in executive-assistant business-development daily-task-manager daily-task-prep; do
+  src="$REPO_DIR/skills/$skill"
+  dst="$SKILLS_DIR/$skill"
+  if [[ -d "$dst" ]]; then
+    gum style --foreground 3 "  $skill: already exists — overwriting"
+  fi
+  cp -r "$src" "$dst"
+  gum style --foreground 2 "  $skill: installed"
+done
+echo
+
+# ─── step 3: install workspace files ─────────────────────────────────────────
+
+gum style --bold "Step 3: Installing workspace files"
+echo
+
+mkdir -p "$WORKSPACE_DIR"
+mkdir -p "$WORKSPACE_DIR/clawchief"
+mkdir -p "$WORKSPACE_DIR/memory"
+
+cp -r "$REPO_DIR/clawchief/"  "$WORKSPACE_DIR/clawchief/"
+cp    "$REPO_DIR/workspace/HEARTBEAT.md"                  "$WORKSPACE_DIR/HEARTBEAT.md"
+cp    "$REPO_DIR/workspace/TOOLS.md"                      "$WORKSPACE_DIR/TOOLS.md"
+cp    "$REPO_DIR/workspace/memory/meeting-notes-state.json" "$WORKSPACE_DIR/memory/meeting-notes-state.json"
+
+gum style --foreground 2 "  clawchief/: installed"
+gum style --foreground 2 "  HEARTBEAT.md: installed"
+gum style --foreground 2 "  TOOLS.md: installed"
+gum style --foreground 2 "  memory/meeting-notes-state.json: installed"
+echo
+
+# ─── step 5: replace placeholders ────────────────────────────────────────────
+
+gum style --bold "Step 5: Replacing placeholders"
+echo
+
+replace_in_dir() {
+  local dir="$1"
+  find "$dir" -type f | while read -r file; do
+    sed -i '' \
+      -e "s|{{OWNER_NAME}}|$OWNER_NAME|g" \
+      -e "s|{{ASSISTANT_NAME}}|$ASSISTANT_NAME|g" \
+      -e "s|{{ASSISTANT_EMAIL}}|$ASSISTANT_EMAIL|g" \
+      -e "s|{{PRIMARY_WORK_EMAIL}}|$PRIMARY_WORK_EMAIL|g" \
+      -e "s|{{PERSONAL_EMAIL}}|$PERSONAL_EMAIL|g" \
+      -e "s|{{BUSINESS_NAME}}|$BUSINESS_NAME|g" \
+      -e "s|{{BUSINESS_URL}}|$BUSINESS_URL|g" \
+      -e "s|{{TIMEZONE}}|$TIMEZONE|g" \
+      -e "s|{{PRIMARY_UPDATE_CHANNEL}}|$PRIMARY_UPDATE_CHANNEL|g" \
+      -e "s|{{PRIMARY_UPDATE_TARGET}}|$PRIMARY_UPDATE_TARGET|g" \
+      -e "s|{{GOOGLE_SHEET_ID}}|$GOOGLE_SHEET_ID|g" \
+      -e "s|{{TARGET_MARKET}}|$TARGET_MARKET|g" \
+      -e "s|{{TARGET_GEOGRAPHY}}|$TARGET_GEOGRAPHY|g" \
+      -e "s|{{SECONDARY_CALENDAR_EMAIL_1}}|$SECONDARY_CALENDAR_EMAIL_1|g" \
+      -e "s|{{SECONDARY_CALENDAR_EMAIL_2}}|$SECONDARY_CALENDAR_EMAIL_2|g" \
+      -e "s|{{SECONDARY_CALENDAR_EMAIL_3}}|$SECONDARY_CALENDAR_EMAIL_3|g" \
+      "$file"
+  done
+}
+
+replace_in_dir "$WORKSPACE_DIR/clawchief"
+replace_in_dir "$SKILLS_DIR"
+sed -i '' \
+  -e "s|{{TIMEZONE}}|$TIMEZONE|g" \
+  -e "s|{{PRIMARY_UPDATE_CHANNEL}}|$PRIMARY_UPDATE_CHANNEL|g" \
+  -e "s|{{PRIMARY_UPDATE_TARGET}}|$PRIMARY_UPDATE_TARGET|g" \
+  "$WORKSPACE_DIR/HEARTBEAT.md" \
+  "$WORKSPACE_DIR/TOOLS.md"
+
+gum style --foreground 2 "  Placeholders replaced."
+echo
+
+# ─── step 6: cron jobs ───────────────────────────────────────────────────────
+
+gum style --bold "Step 6: Cron jobs"
+echo
+
+CRON_TEMPLATE="$REPO_DIR/cron/jobs.template.json"
+job_count=$(jq '.jobs | length' "$CRON_TEMPLATE")
+
+for i in $(seq 0 $((job_count - 1))); do
+  name=$(jq -r ".jobs[$i].name" "$CRON_TEMPLATE")
+  enabled=$(jq -r ".jobs[$i].enabled" "$CRON_TEMPLATE")
+  schedule=$(jq -r ".jobs[$i].schedule.expr" "$CRON_TEMPLATE")
+  message=$(jq -r ".jobs[$i].payload | .text // .message" "$CRON_TEMPLATE")
+
+  if [[ "$enabled" == "true" ]]; then
+    openclaw cron add --name "$name" --schedule "$schedule" --message "$message"
+    gum style --foreground 2 "  $name: created ($schedule)"
+  else
+    job_id=$(openclaw cron add --name "$name" --schedule "$schedule" --message "$message")
+    openclaw cron disable "$job_id"
+    gum style --foreground 8 "  $name: created and disabled ($schedule)"
+  fi
+done
+echo
+
+# ─── step 4: private workspace files reminder ────────────────────────────────
+
+gum style --bold "Step 4: Private workspace files (manual)"
+echo
+gum style "These are not shipped in this repo. Create them yourself if needed:"
+gum style "  $WORKSPACE_DIR/AGENTS.md"
+gum style "  $WORKSPACE_DIR/SOUL.md"
+gum style "  $WORKSPACE_DIR/USER.md"
+gum style "  $WORKSPACE_DIR/IDENTITY.md"
+gum style "  $WORKSPACE_DIR/MEMORY.md"
+gum style "  $WORKSPACE_DIR/memory/"
+echo
+
+# ─── done ────────────────────────────────────────────────────────────────────
+
+gum style \
+  --border rounded \
+  --padding "1 2" \
+  --foreground 2 \
+  --bold \
+  "Install complete. Run INSTALL-CHECKLIST.md to verify."
